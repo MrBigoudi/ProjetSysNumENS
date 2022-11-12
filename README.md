@@ -26,6 +26,8 @@ To see how to run and try the simulator, chek the [HOWTO.md](HOWTO.md) file
 
 <li>We then interpret the so call expression using the <code>calculExp</code> function which given an expression call the corresponding function that interprets this kind of expression and update the given environment.
 
+<li>We've choosed to give a fixed adress size of 4 bits for both the RAM's and the ROM's adresses.</li>
+
 </ul>
 
 

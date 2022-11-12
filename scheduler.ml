@@ -18,7 +18,7 @@ let read_exp eq =
     | Ebinop (_, arg1, arg2) -> (getVar arg1)@(getVar arg2)
     | Emux (arg0, arg1, arg2) -> (getVar arg0)@(getVar arg1)@(getVar arg2)
     | Erom (_,_,arg) -> (getVar arg)
-    | Eram (_,_,arg0, arg1, _, _) -> (getVar arg0)@(getVar arg1)
+    | Eram (_,_,arg0,_,arg1,_) -> (getVar arg0)@(getVar arg1)
     | Econcat (arg1, arg2) -> (getVar arg1)@(getVar arg2)
     | Eslice (_,_,arg) -> (getVar arg)
     | Eselect (_,arg) -> (getVar arg)
@@ -52,7 +52,7 @@ let addEdges g inputs output =
 ;;
 
 let program_to_graph p =
-  (* creation du graphe *)
+  (* create the graph *)
   let rec aux (eqs: equation list) g = match eqs with
     | [] -> g
     | (i,exp)::t -> 
@@ -84,7 +84,7 @@ let identList_to_equationList identL p =
     | h::t -> 
       begin
         (* print_string ("\nident: " ^ h ^ "\n"); *)
-        (* si h un input alors on ne le regarde pas *)
+        (* if h is an input we don't check it *)
         if List.mem h p.p_inputs 
           then 
             begin
@@ -92,7 +92,7 @@ let identList_to_equationList identL p =
               (aux res t)
             end
         else 
-          (* sinon on reconstruit son equation *)
+          (* otherwise rebuild its equation *)
           begin
             (* print_string "VAR\n"; *)
             let eq = getEq h p.p_eqs

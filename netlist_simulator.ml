@@ -9,21 +9,55 @@ let fStderr = (formatter_of_out_channel stderr)
 exception LogicalError of string
 exception SystemError of string
 
-(* init l'environnement *)
+let romAddrSize = 4;;
+let ramAddrSize = 4;;
+
+(* convert a Value into an adress *)
+let valueToAdress v addrSize = 
+  (* convert a bit array into an adress *)
+  let rec bitArrayToAddr arr index res max =
+    match index with
+    | i when i>=max -> Int.to_string res
+    | 0 -> 
+      if arr.(0) 
+        then (bitArrayToAddr arr 1 (res+1) max)
+        else (bitArrayToAddr arr 1 res max)
+    | i when i>=0 -> 
+      if arr.(i) 
+        then (bitArrayToAddr arr (i+1) (res+2*i) max)
+        else (bitArrayToAddr arr (i+1) res max)
+    | _ -> raise (LogicalError "Invalid length for a VBitArray!\n")
+  in
+  match v with
+  | VBit b -> if (addrSize<>1) 
+                then raise (LogicalError "Invalid value as an adress!\n") 
+                else if b then "1" else "0"
+  | VBitArray arr -> let len = Array.length arr in
+                if (len<>addrSize) then raise (LogicalError "Invalid value as an adress!\n")
+                else (bitArrayToAddr arr 0 0 (Array.length arr))
+;;  
+
+(* get an adress from an arg *)
+let argToAdress arg addrSize env =
+  let value = calculArg arg env in (valueToAdress value addrSize)
+;;
+
+
+(* init the environment *)
 let initEnv p = 
   (* Netlist.print_program stdout p; *)
-  (* on cree une map vide *)
+  (* empty map *)
   let env = Env.empty in
-  (* on recupere la liste des cles de l'environnement de depart *)
+  (* get all the keys from the program *)
   let (keys,_) = (List.split (Env.bindings p.p_vars))
   in
     (* fprintf fStdout "%a@.\n" Netlist_printer.print_idents keys; *)
-    (* on ajoute ces cles dans l'env *)
+    (* add all these keys in the environment *)
     let rec aux keys env = 
       match keys with 
       | [] -> env
       | k::keys -> 
-        (* on initialise la valeure a false *)
+        (* initiate them to false *)
         let env = (Env.add k (VBit(false)) env)
           in (aux keys env)
       in (aux keys env)
@@ -93,6 +127,7 @@ let calculMux bit arg1 arg2 env =
     | VBit true  -> (calculArg arg2 env)
     (* test if the first argument is corect *)
     | _ -> raise (LogicalError "Can't have a VBitArray as the multiplexor selector input!\n")
+;;
 
 
 (* return the Value after a concatenation *)
@@ -131,38 +166,87 @@ let calculSelect i arg env =
 ;;
 
 
-(* simlue le calcul d'une expression *)
-let calculExp exp env prevEnv =
-  (* on reconnait l'expression *)
-  match exp with
-    | Earg arg                 -> (calculArg arg env)
-    | Ereg ident               -> (calculReg ident prevEnv) (* prevEnv is env but delayed by one cycle *)
-    | Enot arg                 -> (calculNot arg env)
-    | Ebinop (binop,arg1,arg2) -> (calculBinop binop arg1 arg2 env)
-    | Emux (bit, arg0, arg1)   -> (calculMux bit arg0 arg1 env)
-    | Econcat (arg1, arg2)     -> (calculConcat arg1 arg2 env)
-    | Eslice (i1, i2, arg)     -> (calculSlice i1 i2 arg env)
-    | Eselect (i, arg)         -> (calculSelect i arg env)
-    | _ -> raise (SystemError "Unknown expression!\n")
-    
-    (*
-    | Erom of int (*addr size*) * int (*word size*) * arg (*read_addr*)
-      (* ROM addr_size word_size read_addr *)
-    | Eram of int (*addr size*) * int (*word size*)
-      * arg (*read_addr*) * arg (*write_enable*)
-      * arg (*write_addr*) * arg (*data*)
-      (* RAM addr_size word_size read_addr write_enable write_addr data *)
-    *)
+(* read a value from a memory *)
+let readValueFromMemory addrSize wordSize readAddr memoryEnv memoryAddrSize =
+  (* get the word in the ROM *)
+  if(wordSize <= 0 || addrSize <= 0) then raise (LogicalError "Word's and addresse's sizes must be greater than 0!\n")
+  else
+    (* get the adress *)
+    let raddr = (argToAdress readAddr memoryAddrSize) in
+      let word = (Env.find raddr memoryEnv) in
+        match word with
+        | VBit b -> VBit b
+        | VBitArray arr -> let len = Array.length arr
+        in
+          (* check length conditions *)
+          if (len <> wordSize)
+            then raise (LogicalError "The read word's size must be equal to wordSize!\n")
+            (* return the VBitArray *)
+            else word
 ;;
 
-(* simule le calcul d'une equation *)
-let doEq eq env prevEnv =
-  (* on decompose l'equation *)
+(* return the Value after a ROM access *)
+let calculRom addrSize wordSize readAddr romEnv =
+  (* get the word in the ROM *)
+  (readValueFromMemory addrSize wordSize readAddr romEnv romAddrSize)
+;;
+
+
+(* return the Value after a RAM access and the modified ram it's been modified *)
+let calculRam addrSize wordSize readAddr writeEnable writeAddr data env envRAM prevEnvRAM =
+  (* read a word in the RAM *)
+  let readValue = (readValueFromMemory addrSize wordSize readAddr prevEnvRAM ramAddrSize) in
+    (* write a word in the RAM *)
+    let we = match writeEnable with
+      | Aconst(VBit false) -> false
+      | Aconst(VBit true) -> true
+      | _ -> raise (LogicalError "write_enable value must be a const of 0 or 1!\n")
+    in
+    if (not we)
+      (* no writting *)
+      then (readValue, envRAM)
+      (* writting *)
+      else
+        let waddr = (argToAdress writeAddr ramAddrSize) in
+        (* check data size *)
+        match (calculArg data env) with
+        | VBit b -> let newEnvRAM = (Env.add waddr (VBit b) envRAM) in (readValue, newEnvRAM)
+        | VBitArray arr -> let len = (Array.length arr)
+        in
+          (* check length conditions *)
+          if (len <> wordSize)
+            then raise (LogicalError "The written word's size must be equal to wordSize!\n")
+            else let newEnvRAM = (Env.add waddr (VBitArray arr) envRAM) in (readValue, newEnvRAM)
+;;
+
+
+(* simulate an expression *)
+let calculExp exp env prevEnv envROM envRAM prevEnvRAM =
+  (* recognize the expression *)
+  match exp with
+    | Earg arg                 -> ((calculArg arg env), envRAM)
+    | Ereg ident               -> ((calculReg ident prevEnv), envRAM) (* prevEnv is env but delayed by one cycle *)
+    | Enot arg                 -> ((calculNot arg env), envRAM)
+    | Ebinop (binop,arg1,arg2) -> ((calculBinop binop arg1 arg2 env), envRAM)
+    | Emux (bit, arg0, arg1)   -> ((calculMux bit arg0 arg1 env), envRAM)
+    | Econcat (arg1, arg2)     -> ((calculConcat arg1 arg2 env), envRAM)
+    | Eslice (i1, i2, arg)     -> ((calculSlice i1 i2 arg env), envRAM)
+    | Eselect (i, arg)         -> ((calculSelect i arg env), envRAM)
+    | Erom(addrSize, wordSize, readAddr) 
+                               -> ((calculRom addrSize wordSize readAddr envROM), envRAM)
+    | Eram(addrSize, wordSize, readAddr, writeEnable, writeAddr, data) 
+                               -> (calculRam addrSize wordSize readAddr writeEnable writeAddr data env envRAM prevEnvRAM)
+    (* | _ -> raise (SystemError "Unknown expression!\n") *)
+;;
+
+(* simulate an equation *)
+let doEq eq env prevEnv envROM envRAM prevEnvRAM =
+  (* decompose the equation *)
   let (ident, exp) = eq in
-    (* on calcul la valeure de l'expression *)
-    let value = (calculExp exp env prevEnv) in
-      (* on rend les environnements mis a jour, prevEnv reste inchange car en retard *)
-      let newEnv = Env.add ident value env in (newEnv, prevEnv)
+    (* calcul the expression value *)
+    let (value, newEnvRAM) = (calculExp exp env prevEnv envROM envRAM prevEnvRAM) in
+      (* return updated environments, prevEnv is unchanged because one step delayed *)
+      let newEnv = Env.add ident value env in (newEnv, prevEnv, newEnvRAM, prevEnvRAM)
 ;;
 
 (* print the results *)
@@ -280,18 +364,60 @@ let catchException exc =
     | LogicalError msg -> (manageException (LogicalError "") "Logical" msg)
     | SystemError  msg -> (manageException (SystemError  "") "System"  msg)
     | _ -> raise exc
+;; 
+
+(* put an int to a power *)
+let rec pow a = function
+  | 0 -> 1
+  | 1 -> a
+  | n -> 
+    let b = pow a (n / 2) in
+    b * b * (if n mod 2 = 0 then 1 else a)
+;;
+
+
+(* init an empty memory *)
+let initMemEmpty p addrSize = 
+  (* empty map *)
+  let env = Env.empty in
+  (* create all possible adresses *)
+  let maxAddr = (pow 2 addrSize) in
+  let rec forAllAdresses curAddr env = 
+    (* add the current adress to the env *)
+    match curAddr with
+    | addr when addr>maxAddr -> env
+    | _ -> 
+      (* initiate to false buses of size addrSize *)
+      let env = (Env.add (Int.to_string curAddr) (VBitArray(Array.make addrSize false)) env)
+        in (forAllAdresses (curAddr+1) env)
+    in (forAllAdresses 0 env)
+;;
+
+(* init the RAM *)
+let initRAM p =
+  (* RAM is initiate empy *)
+  (initMemEmpty p ramAddrSize)
+;;
+
+(* init the ROM (empty for the moment) *)
+let initROM p =
+  (initMemEmpty p romAddrSize)
 ;;
 
 
 let simulator program number_steps = 
   (* Netlist.print_program stdout program; *)
-  (* creation environnement *)
+  (* creating environments *)
   let env = (initEnv program) in
+  (* empty ROM for the moment *)
+  let envROM = (initROM program) in
+  (* init the RAM *)
+  let envRAM = (initRAM program) in
   (* fprintf fStdout "nbsteps = %d\n@." number_steps; *)
   if (number_steps < (-1)) then catchException (LogicalError "Number of steps can't be a negative value!\n")
   else
     (* for i in range nbSteps *)
-    let rec forNbStep numSteps env = 
+    let rec forNbStep numSteps env envRAM = 
       if (numSteps == 0) 
         then 
           begin
@@ -301,28 +427,28 @@ let simulator program number_steps =
       else
         begin
           fprintf fStdout "Step %d:\n" (number_steps - (numSteps-1));
-          (* demande d'inputs *)
+          (* ask for inputs *)
           let env = askForInputs program.p_inputs env in
             (* for eq in equations *)
             let eqs = program.p_eqs in
-              let rec forEqs eqs env prevEnv =
+              let rec forEqs eqs env prevEnv envRAM prevEnvRAM =
                 match eqs with
-                | [] -> env
+                | [] -> (env, envRAM)
                 | eq::eqs ->
-                  (* traite une equation *)
+                  (* treats an equation *)
                   try
-                    let (env, prevEnv) = (doEq eq env prevEnv) in (forEqs eqs env prevEnv)
+                    let (env, prevEnv, envRAM, prevEnvRAM) = (doEq eq env prevEnv envROM envRAM prevEnvRAM) in (forEqs eqs env prevEnv envRAM prevEnvRAM)
                   with exc -> (catchException exc)
               in
-                let env = (forEqs eqs env env) 
+                let (env, envRAM) = (forEqs eqs env env envRAM envRAM) 
             in 
               begin 
                 (showResults program env);
-                (forNbStep (numSteps-1) env)
+                (forNbStep (numSteps-1) env envRAM)
               end
           end
     in
-    (forNbStep number_steps env)
+    (forNbStep number_steps env envRAM)
 ;;
 
 

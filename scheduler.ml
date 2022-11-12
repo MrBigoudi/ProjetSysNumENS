@@ -18,7 +18,7 @@ let read_exp eq =
     | Ebinop (_, arg1, arg2) -> (getVar arg1)@(getVar arg2)
     | Emux (arg0, arg1, arg2) -> (getVar arg0)@(getVar arg1)@(getVar arg2)
     | Erom (_,_,arg) -> (getVar arg)
-    | Eram (_,_,arg0,_,arg1,_) -> (getVar arg0)@(getVar arg1)
+    | Eram (_,_,arg0,_,_,_) -> (getVar arg0)
     | Econcat (arg1, arg2) -> (getVar arg1)@(getVar arg2)
     | Eslice (_,_,arg) -> (getVar arg)
     | Eselect (_,arg) -> (getVar arg)

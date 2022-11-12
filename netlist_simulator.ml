@@ -9,23 +9,32 @@ let fStderr = (formatter_of_out_channel stderr)
 exception LogicalError of string
 exception SystemError of string
 
-let romAddrSize = 4;;
-let ramAddrSize = 4;;
+let romAddrSize = 2;;
+let romWordSize = 4;;
+let ramAddrSize = 2;;
+let ramWordSize = 4;;
+
+(* return the Value of an argument *)
+let calculArg arg env = 
+  match arg with 
+    | Avar ident -> Env.find ident env
+    | Aconst value -> value
+;;
 
 (* convert a Value into an adress *)
-let valueToAdress v addrSize = 
+let valueToAdress v addrSize =
   (* convert a bit array into an adress *)
   let rec bitArrayToAddr arr index res max =
     match index with
-    | i when i>=max -> Int.to_string res
+    | i when i>=max -> res
     | 0 -> 
       if arr.(0) 
-        then (bitArrayToAddr arr 1 (res+1) max)
-        else (bitArrayToAddr arr 1 res max)
+        then (bitArrayToAddr arr 1 "1" max)
+        else (bitArrayToAddr arr 1 "0" max)
     | i when i>=0 -> 
       if arr.(i) 
-        then (bitArrayToAddr arr (i+1) (res+2*i) max)
-        else (bitArrayToAddr arr (i+1) res max)
+        then (bitArrayToAddr arr (i+1) ("1"^res) max)
+        else (bitArrayToAddr arr (i+1) ("0"^res) max)
     | _ -> raise (LogicalError "Invalid length for a VBitArray!\n")
   in
   match v with
@@ -34,7 +43,7 @@ let valueToAdress v addrSize =
                 else if b then "1" else "0"
   | VBitArray arr -> let len = Array.length arr in
                 if (len<>addrSize) then raise (LogicalError "Invalid value as an adress!\n")
-                else (bitArrayToAddr arr 0 0 (Array.length arr))
+                else (bitArrayToAddr arr 0 "" (Array.length arr))
 ;;  
 
 (* get an adress from an arg *)
@@ -61,13 +70,6 @@ let initEnv p =
         let env = (Env.add k (VBit(false)) env)
           in (aux keys env)
       in (aux keys env)
-;;
-
-(* return the Value of an argument *)
-let calculArg arg env = 
-  match arg with 
-    | Avar ident -> Env.find ident env
-    | Aconst value -> value
 ;;
 
 (* return the Value of a Register *)
@@ -150,7 +152,7 @@ let calculSlice i1 i2 arg env =
   | VBit _ -> raise (LogicalError "Can't slice a bit!\n")
   | VBitArray arr -> 
     try
-      VBitArray((Array.sub arr i1 i2))
+      VBitArray((Array.sub arr i1 (i2-i1+1)))
     with _ -> raise (LogicalError "Invalid indices for slicing the array!\n")
 ;;
 
@@ -158,7 +160,7 @@ let calculSlice i1 i2 arg env =
 (* return the Value after a bit selection *)
 let calculSelect i arg env = 
   match (calculArg arg env) with
-  | VBit _ -> raise (LogicalError "Can't select from a bit!\n")
+  | VBit b -> if (i<>0) then raise (LogicalError "Can't select from a bit!\n") else (VBit b)
   | VBitArray arr -> 
     try
       VBit((Array.get arr i))
@@ -167,39 +169,30 @@ let calculSelect i arg env =
 
 
 (* read a value from a memory *)
-let readValueFromMemory addrSize wordSize readAddr memoryEnv memoryAddrSize =
+let readValueFromMemory addrSize wordSize readAddr glblEnv memoryEnv memoryAddrSize =
   (* get the word in the ROM *)
   if(wordSize <= 0 || addrSize <= 0) then raise (LogicalError "Word's and addresse's sizes must be greater than 0!\n")
   else
     (* get the adress *)
-    let raddr = (argToAdress readAddr memoryAddrSize) in
-      let word = (Env.find raddr memoryEnv) in
-        match word with
-        | VBit b -> VBit b
-        | VBitArray arr -> let len = Array.length arr
-        in
-          (* check length conditions *)
-          if (len <> wordSize)
-            then raise (LogicalError "The read word's size must be equal to wordSize!\n")
-            (* return the VBitArray *)
-            else word
+    let raddr = (argToAdress readAddr memoryAddrSize glblEnv) in
+      (Env.find raddr memoryEnv)
 ;;
 
 (* return the Value after a ROM access *)
-let calculRom addrSize wordSize readAddr romEnv =
+let calculRom addrSize wordSize readAddr env romEnv =
   (* get the word in the ROM *)
-  (readValueFromMemory addrSize wordSize readAddr romEnv romAddrSize)
+  (readValueFromMemory addrSize wordSize readAddr env romEnv romAddrSize)
 ;;
 
 
 (* return the Value after a RAM access and the modified ram it's been modified *)
 let calculRam addrSize wordSize readAddr writeEnable writeAddr data env envRAM prevEnvRAM =
   (* read a word in the RAM *)
-  let readValue = (readValueFromMemory addrSize wordSize readAddr prevEnvRAM ramAddrSize) in
+  let readValue = (readValueFromMemory addrSize wordSize readAddr env prevEnvRAM ramAddrSize) in
     (* write a word in the RAM *)
-    let we = match writeEnable with
-      | Aconst(VBit false) -> false
-      | Aconst(VBit true) -> true
+    let we = match (calculArg writeEnable env) with
+      | VBit false -> false
+      | VBit true -> true
       | _ -> raise (LogicalError "write_enable value must be a const of 0 or 1!\n")
     in
     if (not we)
@@ -207,16 +200,12 @@ let calculRam addrSize wordSize readAddr writeEnable writeAddr data env envRAM p
       then (readValue, envRAM)
       (* writting *)
       else
-        let waddr = (argToAdress writeAddr ramAddrSize) in
+        let waddr = (argToAdress writeAddr ramAddrSize env) in
         (* check data size *)
         match (calculArg data env) with
         | VBit b -> let newEnvRAM = (Env.add waddr (VBit b) envRAM) in (readValue, newEnvRAM)
-        | VBitArray arr -> let len = (Array.length arr)
-        in
-          (* check length conditions *)
-          if (len <> wordSize)
-            then raise (LogicalError "The written word's size must be equal to wordSize!\n")
-            else let newEnvRAM = (Env.add waddr (VBitArray arr) envRAM) in (readValue, newEnvRAM)
+        | VBitArray arr -> let newEnvRAM = (Env.add waddr (VBitArray arr) envRAM) in 
+          (readValue, newEnvRAM)
 ;;
 
 
@@ -233,7 +222,7 @@ let calculExp exp env prevEnv envROM envRAM prevEnvRAM =
     | Eslice (i1, i2, arg)     -> ((calculSlice i1 i2 arg env), envRAM)
     | Eselect (i, arg)         -> ((calculSelect i arg env), envRAM)
     | Erom(addrSize, wordSize, readAddr) 
-                               -> ((calculRom addrSize wordSize readAddr envROM), envRAM)
+                               -> ((calculRom addrSize wordSize readAddr env envROM), envRAM)
     | Eram(addrSize, wordSize, readAddr, writeEnable, writeAddr, data) 
                                -> (calculRam addrSize wordSize readAddr writeEnable writeAddr data env envRAM prevEnvRAM)
     (* | _ -> raise (SystemError "Unknown expression!\n") *)
@@ -357,16 +346,16 @@ let catchException exc =
   let manageException exc excName msg =
     begin
       fprintf fStderr "\n##### ERROR #####\n\n%s error: %s\n@." excName msg;
-      raise exc
+      failwith ""
     end
   in
   match exc with
     | LogicalError msg -> (manageException (LogicalError "") "Logical" msg)
     | SystemError  msg -> (manageException (SystemError  "") "System"  msg)
     | _ -> raise exc
-;; 
+;;
 
-(* put an int to a power *)
+(* raise an integer n to the power of a *)
 let rec pow a = function
   | 0 -> 1
   | 1 -> a
@@ -376,32 +365,47 @@ let rec pow a = function
 ;;
 
 
+(* cast an integer into a binary string *)
+let intToBin x len =
+  let rec d2b y res = match y with 
+    | 0 -> res
+    | _ -> let tmp = if ((y mod 2) = 1) then "1" else "0" in 
+      (d2b (y/2) (tmp^res))
+  in
+  let bin = (d2b x "") in
+  let deltaSize = len - (String.length bin) in
+  let deltaStr = String.make deltaSize '0' in
+    deltaStr^bin
+;;
+
+
 (* init an empty memory *)
-let initMemEmpty p addrSize = 
+let initMemEmpty addrSize = 
   (* empty map *)
   let env = Env.empty in
   (* create all possible adresses *)
   let maxAddr = (pow 2 addrSize) in
+  (* fprintf fStdout "maxAddr: %d\n@." maxAddr; *)
   let rec forAllAdresses curAddr env = 
     (* add the current adress to the env *)
     match curAddr with
-    | addr when addr>maxAddr -> env
+    | addr when addr>=maxAddr -> env
     | _ -> 
       (* initiate to false buses of size addrSize *)
-      let env = (Env.add (Int.to_string curAddr) (VBitArray(Array.make addrSize false)) env)
+      let env = (Env.add (intToBin curAddr addrSize) (VBitArray(Array.make ramWordSize false)) env)
         in (forAllAdresses (curAddr+1) env)
     in (forAllAdresses 0 env)
 ;;
 
 (* init the RAM *)
-let initRAM p =
+let initRAM addrSize =
   (* RAM is initiate empy *)
-  (initMemEmpty p ramAddrSize)
+  (initMemEmpty addrSize)
 ;;
 
 (* init the ROM (empty for the moment) *)
-let initROM p =
-  (initMemEmpty p romAddrSize)
+let initROM addrSize =
+  (initMemEmpty addrSize)
 ;;
 
 
@@ -410,9 +414,9 @@ let simulator program number_steps =
   (* creating environments *)
   let env = (initEnv program) in
   (* empty ROM for the moment *)
-  let envROM = (initROM program) in
+  let envROM = (initROM romAddrSize) in
   (* init the RAM *)
-  let envRAM = (initRAM program) in
+  let envRAM = (initRAM ramAddrSize) in
   (* fprintf fStdout "nbsteps = %d\n@." number_steps; *)
   if (number_steps < (-1)) then catchException (LogicalError "Number of steps can't be a negative value!\n")
   else

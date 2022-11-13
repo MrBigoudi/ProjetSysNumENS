@@ -58,18 +58,23 @@ let initEnv p =
   (* empty map *)
   let env = Env.empty in
   (* get all the keys from the program *)
-  let (keys,_) = (List.split (Env.bindings p.p_vars))
+  let (keys,ty) = (List.split (Env.bindings p.p_vars))
   in
     (* fprintf fStdout "%a@.\n" Netlist_printer.print_idents keys; *)
     (* add all these keys in the environment *)
-    let rec aux keys env = 
-      match keys with 
-      | [] -> env
-      | k::keys -> 
+    let rec aux keys ty env = 
+      match (keys,ty) with 
+      | [],_ -> env
+      | (k::keys, TBit::tys) -> 
         (* initiate them to false *)
         let env = (Env.add k (VBit(false)) env)
-          in (aux keys env)
-      in (aux keys env)
+          in (aux keys tys env)
+      | (k::keys, TBitArray(len)::tys) -> 
+        (* initiate them to false *)
+        let env = (Env.add k (VBitArray(Array.make len false)) env)
+          in (aux keys tys env)
+      | _ -> raise (SystemError "Failed to initialize the environment!\n")
+    in (aux keys ty env)
 ;;
 
 (* return the Value of a Register *)
@@ -135,24 +140,50 @@ let calculMux bit arg1 arg2 env =
 (* return the Value after a concatenation *)
 let calculConcat arg1 arg2 env = 
   match (calculArg arg1 env) with
-  | VBit _ -> raise (LogicalError "Can't concatenate a bit and a bit array!\n")
+  | VBit b1 ->
+    begin
+      match (calculArg arg2 env) with
+      | VBitArray arr2 -> let arr1 = Array.make 1 false in
+        begin
+          arr1.(0) <- b1;
+          try 
+            VBitArray((Array.append arr1 arr2))
+          with _ -> raise (SystemError "Bit arrays are too big to be concatenate!\n")
+        end
+      | VBit b2 -> let arr = Array.make 2 false in 
+        begin
+          arr.(0) <- b1;
+          arr.(1) <- b2;
+          VBitArray(arr)
+        end
+    end
   | VBitArray arr1 ->
     match (calculArg arg2 env) with
-    | VBit _ -> raise (LogicalError "Can't concatenate a bit and a bit array!\n")
+    | VBit b2 -> let arr2 = Array.make 1 false in
+      begin
+        arr2.(0) <- b2;
+        try 
+          VBitArray((Array.append arr1 arr2))
+        with _ -> raise (SystemError "Bit arrays are too big to be concatenate!\n")
+      end
     | VBitArray arr2 -> 
-      try 
-        VBitArray((Array.append arr1 arr2))
-      with _ -> raise (SystemError "Bit arrays are too big to be concatenate!\n")
+        try 
+          VBitArray((Array.append arr1 arr2))
+        with _ -> raise (SystemError "Bit arrays are too big to be concatenate!\n")
 ;; 
 
 
 (* return the Value after a slice *)
 let calculSlice i1 i2 arg env =
   match (calculArg arg env) with
-  | VBit _ -> raise (LogicalError "Can't slice a bit!\n")
+  | VBit b -> if((i1<>0) && (i2<>0)) 
+                then raise (LogicalError "Can't slice a bit!\n") 
+                else VBit b
   | VBitArray arr -> 
     try
-      VBitArray((Array.sub arr i1 (i2-i1+1)))
+      if (i1 = i2) 
+        then VBit (arr.(i1))
+        else VBitArray((Array.sub arr i1 (i2-i1+1)))
     with _ -> raise (LogicalError "Invalid indices for slicing the array!\n")
 ;;
 

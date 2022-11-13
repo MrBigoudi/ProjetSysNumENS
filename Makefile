@@ -1,11 +1,13 @@
-BUILD := ocamlbuild
-
-PHONY := help graphTest schedulerTest simulator test
-
 TESTDIR := test
+HDRDIR := hdr
+SRCDIR := src
+BINDIR := bin
+
 TESTFILES := $(wildcard $(TESTDIR)/*.net)
-TESTS := graph_test.byte scheduler_test.byte
-TARGETS := $(TESTS) netlist_simulator.byte
+TESTS := $(BINDIR)/graph_test.byte $(BINDIR)/scheduler_test.byte
+TESTSCRIPT := $(TESTDIR)/tests.sh
+
+TARGETS := $(TESTS) $(BINDIR)/netlist_simulator.byte
 TESTTARGET := graphTest schedulerTest
 
 # COLORS
@@ -21,8 +23,12 @@ RESET   := $(shell tput -Txterm sgr0)
 
 TARGET_MAX_CHAR_NUM=20
 
+BUILD := ocamlbuild
+BUILDFLAG := -build-dir $(BINDIR)
 
-all: help# COLORS
+PHONY := help graphTest schedulerTest simulator test
+
+all: help
 
 
 ## Show help
@@ -47,26 +53,29 @@ help:
 ## Build the tests for the basic implementation of directed graphs
 graphTest:
 	@printf "\n${CYAN}Building graph tests${RESET}\n"
-	@$(BUILD) graph_test.byte
+	@$(BUILD) $(BUILDFLAG) $(SRCDIR)/graph_test.byte
+	@mv $(BINDIR)/$(SRCDIR)/graph_test.byte $(BINDIR)/.
 	@echo ""
 
 
 ## Build the tests for the scheduler
 schedulerTest:
 	@printf "\n${CYAN}Building scheduler tests${RESET}\n"
-	@$(BUILD) scheduler_test.byte
+	@$(BUILD) $(BUILDFLAG) $(SRCDIR)/scheduler_test.byte
+	@mv $(BINDIR)/$(SRCDIR)/scheduler_test.byte $(BINDIR)/.
 	@echo ""
 
 
 ## Build the testers and try them on the different .net files in test/
 test: $(TESTTARGET)
-	@./tests.sh
+	@./$(TESTSCRIPT)
 
 
 ## Build the netlist simulator
 simulator:
 	@printf "\n${CYAN}Building simulator${RESET}\n"
-	@$(BUILD) netlist_simulator.byte
+	@$(BUILD) $(BUILDFLAG) $(SRCDIR)/netlist_simulator.byte
+	@mv $(BINDIR)/$(SRCDIR)/netlist_simulator.byte $(BINDIR)/.
 	@echo ""
 
 
@@ -74,7 +83,7 @@ simulator:
 clean:
 	@printf "\n${CYAN}##### INIT CLEANING #####${RESET}\n\n"
 	@printf "${MAGENTA}Deleting .bytes${RESET}\n"
-	@rm -rf $(TARGETS)
+	@rm -rf $(BINDIR)/*
 	@printf "${GREEN}Done${RESET}\n\n"
 	@printf "${MAGENTA}Deleting _sch.net files${RESET}\n"
 	@rm -rf $(TESTDIR)/*_sch.net

@@ -1,9 +1,10 @@
 open Netlist_ast
 open Graph
 
+(* an exception thrown when a cycle is found on the netlist program *)
 exception Combinational_cycle
 
-
+(* get identifiers that should not cause a combinational cycle from an expression *)
 let read_exp eq =
   let getVar arg = 
     match arg with
@@ -25,10 +26,13 @@ let read_exp eq =
 ;;
 
 
+(* get all the keys from a program's environment *)
 let getKeys vars = 
   let (keys,_) = (List.split (Env.bindings vars)) in keys
 ;;
 
+
+(* initiate a graph containing for nodes all the keys from a program's environment *)
 let initGraph p = 
   let g  = Graph.mk_graph() in
       let keys = (getKeys p.p_vars) in 
@@ -41,6 +45,8 @@ let initGraph p =
   in (aux keys)
 ;;
 
+
+(* add edges in a graph to a list of node having the same output *)
 let addEdges g inputs output =
   let rec aux inputs = match inputs with
   | [] -> g
@@ -51,6 +57,8 @@ let addEdges g inputs output =
   in (aux inputs)
 ;;
 
+
+(* turn a program into a graph *)
 let program_to_graph p =
   (* create the graph *)
   let rec aux (eqs: equation list) g = match eqs with
@@ -62,6 +70,7 @@ let program_to_graph p =
 ;; 
 
 
+(* get all the equation of a list that have the given identifier as identifier *)
 let getEq ident eqList = 
   let rec aux eqList =
     match eqList with
@@ -77,6 +86,7 @@ let getEq ident eqList =
 ;;
 
 
+(* transform a list of identifiers into a list of equations *)
 let identList_to_equationList identL p =
   let rec aux res identL = 
     match identL with
@@ -103,6 +113,7 @@ let identList_to_equationList identL p =
 ;;
 
 
+(* transform a program into the same program but with its netlist topologically sorted *)
 let schedule p = 
   let g = (program_to_graph p) in
   try 

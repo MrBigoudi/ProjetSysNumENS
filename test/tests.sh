@@ -16,13 +16,13 @@ TESTFILES=$(ls test/*.net);
 printf "\n${CYAN}########## BEGIN TESTS ##########${RESET}\n\n";
 
 printf "\n${CYAN}##### TESTS GRAPH #####\n${RESET}";
-./graph_test.byte;
+./bin/graph_test.byte;
 printf "\n${GREEN}##### DONE #####${RESET}\n\n"
 
 printf "\n${CYAN}##### TESTS SCHEDULER #####\n\n${RESET}";
 for testFile in ${TESTFILES}; do
     printf "Testing on ${YELLOW}${testFile}${RESET}:";
-	./scheduler_test.byte -print ${testFile};
+	./bin/scheduler_test.byte -print ${testFile};
 	schFile=$(echo ${testFile} | sed 's/.net/_sch.net/');
 	printf "\n${MAGENTA}Before scheduling: \n\n${RESET}";
     cat ${testFile};

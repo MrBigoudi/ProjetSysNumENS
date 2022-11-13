@@ -1,17 +1,30 @@
 open Netlist_ast;;
 open Format;;
 
+(* the option to only show the running program *)
 let print_only = ref false
+
+(* the option to specify the number of cycle on wich run the program *)
 let number_steps = ref (-1)
+
+(* the standard output for format printer *)
 let fStdout = (formatter_of_out_channel stdout)
+
+(* the error output for format printer *)
 let fStderr = (formatter_of_out_channel stderr)
 
+(* an exception thrown when a logical error from the input program is found *)
 exception LogicalError of string
+(* an exception thrown when a an impossible situation happens *)
 exception SystemError of string
 
+(* the size of the adresses in the ROM *)
 let romAddrSize = 2;;
+(* the size of a word in the ROM *)
 let romWordSize = 4;;
+(* the size of the adresses in the RAM *)
 let ramAddrSize = 2;;
+(* the size of a word in the RAM *)
 let ramWordSize = 4;;
 
 (* return the Value of an argument *)
@@ -439,7 +452,7 @@ let initROM addrSize =
   (initMemEmpty addrSize)
 ;;
 
-
+(* simulate a netlist *)
 let simulator program number_steps = 
   (* Netlist.print_program stdout program; *)
   (* creating environments *)
@@ -486,7 +499,7 @@ let simulator program number_steps =
     (forNbStep number_steps env envRAM)
 ;;
 
-
+(* get a netlist program from a .net file and run the simulator on that program *)
 let compile filename =
   try
     let p = Netlist.read_file filename in
